@@ -1,0 +1,50 @@
+name: Build Termux Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag name for release'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-deb:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+      
+      - name: Clone Termux packages
+        run: |
+          git clone --depth=1 https://github.com/termux/termux-packages.git
+          cp -r packages/rget termux-packages/packages/rget
+
+      - name: Install Rust and Termux build tools
+        run: |
+          cd termux-packages
+          ./scripts/setup-ubuntu.sh
+          yes | ./scripts/setup-android-sdk.sh
+          source $HOME/.cargo/env || true
+
+      - name: Build rget package
+        run: |
+          cd termux-packages
+          ./build-package.sh rget
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rget-deb
+          path: termux-packages/output/rget_*.deb
+      
+      - name: Upload .deb to GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag }}
+          files: termux-packages/output/rget_*.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
