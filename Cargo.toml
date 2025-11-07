@@ -1,0 +1,13 @@
+[package]
+name = "rget"
+version = "0.1.0"
+edition = "2024"
+authors = ["JOBIANSTECHIE <jobianstechie@gmail.com>"]
+description = "A fast resumable downloader written in Rust"
+license = "MIT"
+repository = "https://github.com/jobians/rust-resumable-downloader"
+
+[dependencies]
+reqwest = { version = "0.11", features = ["stream"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+futures-util = "0.3"
