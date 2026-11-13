@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to build (for example, v0.1.0)"
+        description: "Tag to build (for example, v0.1.1)"
         required: true
         type: string
 
@@ -38,6 +38,7 @@ jobs:
 
           sed -i \
             -e "s|^TERMUX_PKG_VERSION=.*|TERMUX_PKG_VERSION=${version}|" \
+            -e "s|^TERMUX_PKG_REVISION=.*|TERMUX_PKG_REVISION=1|" \
             -e "s|^TERMUX_PKG_SRCURL=.*|TERMUX_PKG_SRCURL=(\"${source_url}\")|" \
             -e "s|^TERMUX_PKG_SHA256=.*|TERMUX_PKG_SHA256=(\"${sha256}\")|" \
             termux-packages/packages/rget/build.sh

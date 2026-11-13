@@ -39,8 +39,8 @@ The compiled binary will be located in `target/release/rget`.
 #### Termux (Android)
 
 ```bash
-curl -LO https://github.com/jobians/rust-resumable-downloader/releases/download/v0.1.0/rget_0.1.0-2_aarch64.deb
-dpkg -i rget_0.1.0-2_aarch64.deb
+curl -LO https://github.com/jobians/rust-resumable-downloader/releases/download/v0.1.1/rget_0.1.1-1_aarch64.deb
+dpkg -i rget_0.1.1-1_aarch64.deb
 ```
 
 ### Android App
