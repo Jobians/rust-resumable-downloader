@@ -1,50 +1,62 @@
-name: Build Termux Package
+name: Build Termux Package (manual)
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag name for release'
+        description: "Tag to build (for example, v0.1.0)"
         required: true
+        type: string
 
 permissions:
-  contents: write
+  contents: read
+
+env:
+  RELEASE_TAG: ${{ inputs.tag }}
 
 jobs:
   build-deb:
+    name: Termux package
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v3
-      
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
       - name: Clone Termux packages
         run: |
           git clone --depth=1 https://github.com/termux/termux-packages.git
           cp -r packages/rget termux-packages/packages/rget
+
+      - name: Update Termux package metadata
+        run: |
+          version="${RELEASE_TAG#v}"
+          source_url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${RELEASE_TAG}.tar.gz"
+          sha256="$(curl -fsSL "$source_url" | sha256sum | awk '{print $1}')"
+
+          sed -i \
+            -e "s|^TERMUX_PKG_VERSION=.*|TERMUX_PKG_VERSION=${version}|" \
+            -e "s|^TERMUX_PKG_SRCURL=.*|TERMUX_PKG_SRCURL=(\"${source_url}\")|" \
+            -e "s|^TERMUX_PKG_SHA256=.*|TERMUX_PKG_SHA256=(\"${sha256}\")|" \
+            termux-packages/packages/rget/build.sh
 
       - name: Install Rust and Termux build tools
         run: |
           cd termux-packages
           ./scripts/setup-ubuntu.sh
           yes | ./scripts/setup-android-sdk.sh
-          source $HOME/.cargo/env || true
+          source "$HOME/.cargo/env" || true
 
       - name: Build rget package
         run: |
           cd termux-packages
           ./build-package.sh rget
-      
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rget-deb
+          name: rget-termux
           path: termux-packages/output/rget_*.deb
-      
-      - name: Upload .deb to GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.event.inputs.tag }}
-          files: termux-packages/output/rget_*.deb
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          if-no-files-found: error

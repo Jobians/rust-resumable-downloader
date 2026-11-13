@@ -1,0 +1,283 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (for example, v0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Verify tag matches package version
+        run: |
+          package_version="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json, sys; print(json.load(sys.stdin)["packages"][0]["version"])')"
+          tag_version="${RELEASE_TAG#v}"
+          if [ "$package_version" != "$tag_version" ]; then
+            echo "Tag $RELEASE_TAG does not match Cargo.toml version $package_version" >&2
+            exit 1
+          fi
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Run tests
+        run: cargo test --locked
+
+      - name: Run Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+  build-cli:
+    name: CLI (${{ matrix.target }})
+    needs: validate
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            ext: ""
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            ext: ""
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            ext: ""
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            ext: ".exe"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build binary
+        run: cargo build --release --locked --bin rget --target ${{ matrix.target }}
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: rget-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/rget${{ matrix.ext }}
+          if-no-files-found: error
+
+  build-android:
+    name: Android APK
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "ndk;28.2.13676358"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: android
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Build native libraries
+        run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          if [ -z "$SDK_ROOT" ]; then
+            echo "Android SDK location not found" >&2
+            exit 1
+          fi
+          export ANDROID_NDK_HOME="$SDK_ROOT/ndk/28.2.13676358"
+          ./android/build-android.sh
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.7.1"
+
+      - name: Build APK
+        run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          if [ -z "$SDK_ROOT" ]; then
+            echo "Android SDK location not found" >&2
+            exit 1
+          fi
+          echo "sdk.dir=$SDK_ROOT" > android/local.properties
+          ./android/build-apk.sh
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: rget-android
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+  build-termux:
+    name: Termux package
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Clone Termux packages
+        run: |
+          git clone --depth=1 https://github.com/termux/termux-packages.git
+          cp -r packages/rget termux-packages/packages/rget
+
+      - name: Update Termux package metadata
+        run: |
+          version="${RELEASE_TAG#v}"
+          source_url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${RELEASE_TAG}.tar.gz"
+          sha256="$(curl -fsSL "$source_url" | sha256sum | awk '{print $1}')"
+
+          sed -i \
+            -e "s|^TERMUX_PKG_VERSION=.*|TERMUX_PKG_VERSION=${version}|" \
+            -e "s|^TERMUX_PKG_SRCURL=.*|TERMUX_PKG_SRCURL=(\"${source_url}\")|" \
+            -e "s|^TERMUX_PKG_SHA256=.*|TERMUX_PKG_SHA256=(\"${sha256}\")|" \
+            termux-packages/packages/rget/build.sh
+
+      - name: Build Termux package
+        run: |
+          cd termux-packages
+          ./scripts/setup-ubuntu.sh
+          yes | ./scripts/setup-android-sdk.sh
+          source "$HOME/.cargo/env" || true
+          ./build-package.sh rget
+
+      - name: Upload Termux package
+        uses: actions/upload-artifact@v4
+        with:
+          name: rget-termux
+          path: termux-packages/output/rget_*.deb
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    needs:
+      - build-cli
+      - build-android
+      - build-termux
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Package release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+
+          for dir in artifacts/rget-*; do
+            [ -d "$dir" ] || continue
+            target="${dir#artifacts/rget-}"
+
+            case "$target" in
+              android|termux)
+                continue
+                ;;
+            esac
+
+            cp LICENSE "$dir/LICENSE"
+
+            if [ -f "$dir/rget.exe" ]; then
+              archive="$PWD/release/rget-$RELEASE_TAG-$target.zip"
+              (cd "$dir" && zip -q -r "$archive" rget.exe LICENSE)
+            else
+              chmod +x "$dir/rget"
+              tar -czf "release/rget-$RELEASE_TAG-$target.tar.gz" \
+                -C "$dir" rget LICENSE
+            fi
+          done
+
+          cp artifacts/rget-android/app-debug.apk \
+            "release/rget-$RELEASE_TAG-android-debug.apk"
+          cp artifacts/rget-termux/*.deb release/
+
+          (cd release && sha256sum * > SHA256SUMS.txt)
+          ls -lh release
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Rget ${{ env.RELEASE_TAG }}
+          generate_release_notes: true
+          prerelease: ${{ contains(env.RELEASE_TAG, '-') }}
+          fail_on_unmatched_files: true
+          files: release/*
+          token: ${{ secrets.GITHUB_TOKEN }}

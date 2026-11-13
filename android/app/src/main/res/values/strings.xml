@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">rget</string>
+    <string name="app_subtitle">Resumable Downloader</string>
+    <string name="app_description">Fast, resumable downloads powered by a Rust core with rustls encryption.</string>
+    <string name="url_label">Download URL</string>
+    <string name="url_hint">Paste a direct download link</string>
+    <string name="url_helper">HTTP and HTTPS links are supported.</string>
+    <string name="download">Download</string>
+    <string name="cancel">Cancel</string>
+    <string name="status_ready">Ready</string>
+    <string name="status_ready_detail">Choose a URL to start downloading.</string>
+    <string name="status_starting">Starting…</string>
+    <string name="status_downloading">Downloading…</string>
+    <string name="status_complete">Download complete</string>
+    <string name="status_cancelled">Download cancelled</string>
+    <string name="status_failed">Download failed</string>
+    <string name="status_saving">Saving to Downloads…</string>
+    <string name="detail_starting">The finished file will be saved to Downloads.</string>
+    <string name="detail_saved">Saved to %1$s</string>
+    <string name="detail_cancelled">Cancelled. Partial data is kept for resume.</string>
+    <string name="detail_error">Error: %1$s</string>
+    <string name="error_empty_url">Enter a URL first.</string>
+    <string name="error_start_failed">Could not start the download.</string>
+    <string name="error_save_failed">Could not save to Downloads: %1$s</string>
+    <string name="error_storage_permission">Storage permission is required to save the file to Downloads.</string>
+    <string name="error_unknown">Unknown error.</string>
+    <string name="speed_label">Speed</string>
+    <string name="eta_label">ETA</string>
+    <string name="size_label">Size</string>
+    <string name="stat_empty">—</string>
+    <string name="percent_zero">0%</string>
+    <string name="percent_format">%1$d%%</string>
+    <string name="powered_by">Rust core · JNI bridge · Resumable transfers</string>
+</resources>
